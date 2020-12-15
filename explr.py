@@ -2,12 +2,13 @@ import gym
 import time
 
 
-from UserIO.arrowkeys import get_arrow_key
+from src.UserIO.arrowkeys import get_arrow_key
 
 
 env = gym.make('MountainCar-v0')
 env = gym.make('CartPole-v0')
 env = gym.make('Breakout-ram-v0')
+env = gym.make('Breakout-v0')
 # save video of Agent interacting in this environment
 #env = gym.wrappers.Monitor(env, './video/', force = True)
 
@@ -19,6 +20,8 @@ for episode in range(4):
     while not done:
        t += 1
        env.render()
+       screen = env.render("rgb_array")
+       assert (observation == screen).all()
        time.sleep(.06)
        action = env.action_space.sample()
        action = get_arrow_key({'right':2, 'left':3, 'down':1})
