@@ -34,9 +34,5 @@ def RamAgent(input_size, output_size):
         nn.ReLU(),
         nn.Linear(32, output_size),
     )
-    agent.name = "RamAgent"
-    agent.save = None
-    agent.process_observation = torch.from_numpy
-    print('\n'.join(str(p.shape) for p in agent.parameters()))
     return agent
 

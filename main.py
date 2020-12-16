@@ -35,8 +35,8 @@ agent.to(device)
 
 
 epsilon = LinearScheduler(1, .1, -0.0001, start_delay=256)
-#gamma = LinearScheduler(0, .999, 0.004, start_delay=128)
-gamma = .99
+gamma = LinearScheduler(0, .9, 0.001, start_delay=128)
+#gamma = .9
 trainer = DeepQTrainer(
     agent,
     env.env,
@@ -47,13 +47,13 @@ trainer = DeepQTrainer(
     gamma_scheduler=gamma,
     epsilon_scheduler=epsilon,
     action_name_map=action_map,
-    lr=1e-2,
+    lr=1e-5,
 )
 
 
 reward="UNFINISHED"
 try:
-    loss, reward = trainer.train(4096*8, show_every=32, render_after=4000)
+    loss, reward = trainer.train(4096*8, show_every=32, render_after=8000)
 except KeyboardInterrupt:
     print()  # new line
 finally:

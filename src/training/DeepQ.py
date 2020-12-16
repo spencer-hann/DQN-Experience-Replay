@@ -10,6 +10,9 @@ from .Schedulers import Repeater
 from ..Device import device
 
 
+epmax = 0
+
+
 class DeepQTrainer:
     def __init__(
         self,
@@ -51,7 +54,7 @@ class DeepQTrainer:
         print("Agent")
         print(self.agent)
 
-        self.optimizer = torch.optim.Adam(self.agent.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.RMSprop(self.agent.parameters(), lr=self.lr)
         self.lossfn = torch.nn.MSELoss()
 
     def progress_summary(self, e, n, lens, loss, r, clear=True):
@@ -77,7 +80,7 @@ class DeepQTrainer:
             self.epsilon = next(self.epsilon_get)
             self.gamma = next(self.gamma_get)
 
-            l, r, t = self.train_episode(D)
+            l, r, t = self.train_episode(D,)
 
             loss.append(l)
             avg_len.append(t)
@@ -86,7 +89,7 @@ class DeepQTrainer:
                 avg_r = sum(avg_r) / len(avg_r)
                 self.progress_summary(episode, n_episodes, avg_len, l, avg_r,)
                 avg_r = []
-                self.agent.save(f"current_agent_{self.agent.name}.pt")
+                #self.agent.save(f"current_agent_{self.agent.name}.pt")
                 if episode > render_after:
                     self.train_episode(D, render=True, eval=True)
 
@@ -96,8 +99,10 @@ class DeepQTrainer:
         return loss, sum(r)
 
     def train_episode(self, D, render=False, eval=False,):
+        global epmax
         x = self.env.reset()
-        x = self.agent.process_observation(x)
+        #x = self.agent.process_observation(x)
+        x = torch.from_numpy(x)
         s = RollingState(self.hdepth, x)
         loss = []
         rewards = []
@@ -105,9 +110,6 @@ class DeepQTrainer:
         epsilon = 0.05 if eval else self.epsilon
 
         for t in range(self.eplength):
-            if render:
-                sleep(.03)
-                self.env.render()
             if random.random() < epsilon:
                 # epsilon greedy action selection
                 a = self.env.action_space.sample()
@@ -118,22 +120,29 @@ class DeepQTrainer:
                 self.action_tracker.update(a)
 
             x, r, done, info = self.env.step(a)
+            r -= done
             if not eval:
-                x = self.agent.process_observation(x)
+                #x = self.agent.process_observation(x)
+                x = torch.from_numpy(x)
                 s.update(x)
 
                 D.store(s, a, r, done)
-                l = self.train_batch(D).item()
+                #print('t', t)
+                l = self.train_batch(D)
 
-                loss.append(l)
+                loss.append(l.item())
                 rewards.append(r)
 
-            if done: break  # after last batch train?
+            if render:
+                sleep(.03)
+                self.env.render()
+
+            if done: break
 
         return loss, rewards, t+1
 
     def train_batch(self, D):
-        batch = D.sample(self.batch_size)  # N, 3 (s, a, r)
+        batch = D.careful_sample(self.batch_size)  # N, 3 (s, a, r)
         s, *ard = zip(*batch)
         a, r, done = map(lambda t: tensor(t,device=device), ard)  # N  x3
         s, sp = zip(*map(RollingState.time_split, s))  # N, H, S  x2
@@ -144,28 +153,28 @@ class DeepQTrainer:
         out, _ = torch.max(out, dim=1)  # N
         y = r + self.gamma * out * (done.logical_not())
 
-        self.optimizer = torch.optim.Adam(self.agent.parameters(), lr=self.lr)
-        self.lossfn = torch.nn.MSELoss()
+        #get_params = lambda a: next(a.parameters()).clone()#.detach()
 
-        get_params = lambda a: next(a.parameters()).clone().detach()
-
-        p1 = get_params(self.agent)
-        p1[...] = get_params(self.agent)
+        #p1 = get_params(self.agent)
+        #p1[...] = get_params(self.agent)
+        #print('p1', id(p1))
+        #print(p1)
         #self.agent.train()
         self.optimizer.zero_grad()
         yhat = self.agent(s)
-        print(yhat.shape, yhat.requires_grad)
         yhat = yhat.gather(1, a[:,None])#[1]#.squeeze()
-        print(yhat.shape, yhat.requires_grad)
         yhat = yhat.squeeze()
-        print(yhat.shape, yhat.requires_grad)
-        loss = self.lossfn(yhat, y)
+        loss = self.lossfn(yhat.T, y)
         loss.backward()
+        #print("params")
+        #print(next(self.agent.parameters()))
+        #print("params, grad")
+        #print(next(self.agent.parameters()).grad)
         self.optimizer.step()
-        p2 = get_params(self.agent)
+        #p2 = get_params(self.agent)
 
         #self.agent.eval()
-        if 1:# and random.random() < .01:
+        if 0:# and random.random() < .01:
             print()
             print('r', sum(r).item());print(r)
             print('done', sum(done).item());print(done)
@@ -175,18 +184,17 @@ class DeepQTrainer:
             print('yhat');print(yhat)
             print('loss');print(loss)
 
-        print('p1', id(p1))
-        print(p1)
-        print('p2', id(p2))
-        print(p2)
-        if not hasattr(self, '_count'):
-            self._count = 1
-        else:
-            self._count += 1
-            if self._count > 10:
-                assert p1 is not p2
-                assert p1[0] is not p2[0]
-                assert all((p1 != p2).flatten())
+        #print('p2', id(p2))
+        #print(p2)
+        #if not hasattr(self, '_count'):
+        #    self._count = 1
+        #else:
+        #    self._count += 1
+        #    if self._count > 10:
+        #        assert p1 is not p2
+        #        assert p1[0] is not p2[0]
+        #        eq = (p1 != p2).flatten()
+        #        assert all(eq), sum(eq) / len(eq)
 
         return loss
 
@@ -235,9 +243,9 @@ class RollingState(torch.Tensor):
     def time_split(self):  # for s_t and s_{t+1}
         return self.now, self.next
 
-    def copy(self, *args, **kwargs):
+    def copy(self):
         shape = self.shape
-        new = RollingState(shape[0]-1, *shape[1:], *args, **kwargs)
+        new = RollingState(shape[0]-1, *shape[1:])
         new.copy_(self)
         return new
 
@@ -260,10 +268,8 @@ class ReplayMemory(deque):
         a: int,
         r: float,
         done: bool,
-        copy_state=True,
     ):
-        if copy_state:
-            s = s.copy()
+        s = s.copy()
         expr = ReplayMemory.Experience(s, a, r, done)
         self.append(expr)
         return self
