@@ -1,6 +1,3 @@
-from math import abs
-
-
 def Repeater(a):
     while True:
         yield a
@@ -17,12 +14,12 @@ def FallbackRepeater(a):
         yield _a
 
 
-def LinearScheduler(val, end, rate=None, start_delay=0):
+def LinearScheduler(val, end, rate=None, start_delay=0, repeat=True):
     if rate is None:
         val, end, rate = 1, val, end
 
-    if abs(rate) > abs(val - end):  # interpret rate as n steps
-        rate =  abs(val - end) / rate
+    if abs(rate) > abs(end - val):  # interpret rate as n steps
+        rate = (end - val) / rate
 
     for _ in range(start_delay):
         yield val
@@ -31,6 +28,9 @@ def LinearScheduler(val, end, rate=None, start_delay=0):
     while (val > end) == state:
         yield val
         val += rate
+
+    if not repeat:
+        return end
 
     while True:
         yield end
